@@ -1,0 +1,22 @@
+{
+  "name": "IUST Transit Portal",
+  "short_name": "IUST Transit",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#090d16",
+  "icons": [
+    {
+      "src": "iust-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "iust-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

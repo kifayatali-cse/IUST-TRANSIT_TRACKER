@@ -14,16 +14,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
-  <!-- Preconnect to CDNs for zero latency -->
-  <link rel="preconnect" href="https://unpkg.com" />
-  <link rel="preconnect" href="https://www.gstatic.com" />
-  <link rel="preconnect" href="https://iust-bus-tracker-b2d05-default-rtdb.asia-southeast1.firebasedatabase.app" />
-
   <!-- Leaflet Map CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <!-- Main Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=20" />
+  <link rel="stylesheet" href="style.css?v=17" />
 
   <!-- Firebase Compat SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -31,9 +26,11 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 </head>
 <body>
+  <!-- Physical In-DOM Audio Element for Android Chrome -->
+  <audio id="transitAudio" src="boot.mp3" preload="auto" playsinline></audio>
 
   <!-- SPLASH ANIMATION & TAP-TO-INITIALIZE OVERLAY -->
-  <div id="splashScreen" class="splash-container" onpointerdown="unlockAndStartTransit(event)" ontouchstart="unlockAndStartTransit(event)">
+  <div id="splashScreen" class="splash-container" onclick="unlockAndStartTransit(event)" ontouchstart="unlockAndStartTransit(event)">
     <div class="splash-content">
       <div class="splash-logo-pulse">
         <img src="iust-logo.png" alt="IUST Logo" class="splash-logo" onerror="this.src='https://upload.wikimedia.org/wikipedia/en/2/23/Islamic_University_of_Science_%26_Technology_logo.png'" />
@@ -53,331 +50,146 @@
     </div>
   </div>
 
-  <!-- AUTHENTICATION & SECURITY PORTAL -->
-  <div id="authModal" class="modal-overlay">
-    <div class="modal-card">
-      
-      <!-- University Branding Banner -->
-      <div class="modal-hero">
-        <div class="brand-badge-group">
-          <div class="uni-logo-wrapper">
-            <img src="iust-logo.png" alt="IUST Logo" class="official-uni-logo" onerror="this.src='https://upload.wikimedia.org/wikipedia/en/2/23/Islamic_University_of_Science_%26_Technology_logo.png'" />
-          </div>
-          <div class="brand-text">
-            <h2>Islamic University of Science & Technology</h2>
-            <p>Awantipora, Pulwama, Jammu & Kashmir – 192122</p>
-          </div>
-        </div>
+  <!-- AUTH / LOGIN MODAL -->
+  <div id="authModal" class="auth-overlay">
+    <div class="auth-card">
+      <div class="auth-header">
+        <img src="iust-logo.png" alt="IUST Logo" class="auth-logo" onerror="this.src='https://upload.wikimedia.org/wikipedia/en/2/23/Islamic_University_of_Science_%26_Technology_logo.png'" />
+        <h2>Security Gateway</h2>
+        <p>IUST Fleet Telemetry & Transit System</p>
       </div>
 
-      <!-- Security Portal Body -->
-      <div class="modal-body">
-        <div class="portal-tagline">
-          <h3 id="portalTagTitle">Official Campus Fleet Tracking Portal</h3>
-          <p id="portalTagSub">Morning inbound live radar restricted to university members.</p>
-        </div>
-
-        <!-- Role Selector -->
-        <div class="auth-role-tabs" id="roleSelectorContainer">
-          <button id="tabStudent" class="auth-tab active" onclick="setAuthRole('student')">🎓 Student</button>
-          <button id="tabFaculty" class="auth-tab" onclick="setAuthRole('faculty')">👨‍🏫 Faculty / Staff</button>
-          <button id="tabDriver" class="auth-tab" onclick="setAuthRole('driver')">🚍 Fleet Driver</button>
-        </div>
-
-        <!-- Mode Toggle -->
-        <div class="auth-mode-toggle" id="authModeToggleContainer">
-          <span id="modeLogin" class="mode-link active" onclick="setAuthMode('login')">Sign In</span>
-          <span>&bull;</span>
-          <span id="modeSignup" class="mode-link" onclick="setAuthMode('signup')">Manual Sign Up</span>
-        </div>
-
-        <!-- 1-Click Google Sign-In -->
-        <div id="googleAuthSection">
-          <button class="btn btn-google" onclick="handleGoogleAuth()">
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" width="18" height="18" />
-            Continue with Google / Gmail
-          </button>
-          <div class="divider"><span>OR USE CAMPUS CREDENTIALS</span></div>
-        </div>
-
-        <!-- ONBOARDING & SIGNUP FIELDS -->
-        <div id="nameGroup" class="input-group hidden">
-          <label id="nameLabel">Full Name</label>
-          <input type="text" id="authName" placeholder="Enter your full name" />
-        </div>
-
-        <div id="studentRegGroup" class="input-group hidden">
-          <label>IUST Student Registration No.</label>
-          <input 
-            type="text" 
-            id="authRegId" 
-            placeholder="Enter Student Registration No." 
-            style="text-transform: uppercase;"
-            oninput="this.value = this.value.toUpperCase()"
-          />
-        </div>
-
-        <div id="facultyIdGroup" class="input-group hidden">
-          <label>IUST Employee / Faculty ID</label>
-          <input 
-            type="text" 
-            id="authFacultyId" 
-            placeholder="Enter Employee / Faculty ID" 
-            style="text-transform: uppercase;"
-            oninput="this.value = this.value.toUpperCase()"
-          />
-        </div>
-
-        <div id="phoneGroup" class="input-group hidden">
-          <label>Driver Phone Number (Mandatory for Transit Logs)</label>
-          <input type="tel" id="authPhone" placeholder="Enter phone number" />
-        </div>
-
-        <div id="driverIdGroup" class="input-group hidden">
-          <label>Driver Transit / Employee ID</label>
-          <input type="text" id="authDriverId" placeholder="Enter driver employee ID" />
-        </div>
-
-        <div id="driverBusSelectGroup" class="input-group hidden">
-          <label style="color:#0284c7; font-weight:700;">Select Your Assigned Bus (Locked Permanently):</label>
-          <select id="driverRegistrationBusSelect"></select>
-        </div>
-
-        <!-- Email & Password Form -->
-        <div id="emailPasswordSection">
-          <div class="input-group">
-            <label id="emailLabel">Campus / Personal Email</label>
-            <input type="email" id="authEmail" placeholder="e.g., user@iust.ac.in" />
-          </div>
-
-          <div class="input-group">
-            <label>Password</label>
-            <input type="password" id="authPassword" placeholder="••••••••" />
-          </div>
-        </div>
-
-        <!-- Remember Me Checkbox -->
-        <div class="remember-me-container" id="rememberMeSection">
-          <label class="checkbox-label">
-            <input type="checkbox" id="rememberMeCheckbox" checked />
-            <span>Remember me on this device</span>
-          </label>
-        </div>
-
-        <p id="authError" class="error-msg"></p>
-
-        <button id="authActionBtn" class="btn btn-primary" onclick="handleAuthSubmit()">Sign In to Security Portal</button>
-
-        <div class="auth-support-footer">
-          <span>Login Queries or Support: <a href="mailto:kifayatali.00003092107@gmail.com">kifayatali.00003092107@gmail.com</a></span>
-        </div>
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabStudent" onclick="switchAuthTab('student')">Student / Faculty</button>
+        <button class="auth-tab" id="tabDriver" onclick="switchAuthTab('driver')">Authorized Driver</button>
       </div>
+
+      <form id="authForm" onsubmit="handleAuthSubmit(event)">
+        <div class="form-group">
+          <label id="authIdLabel" for="authIdentifier">Student Roll / Registration No.</label>
+          <input type="text" id="authIdentifier" placeholder="e.g. IUST0120230001 or name@iust.ac.in" required />
+        </div>
+
+        <div class="form-group">
+          <label for="authPassword">Password</label>
+          <input type="password" id="authPassword" placeholder="••••••••" required />
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" id="authSubmitBtn" class="btn-primary">Authenticate</button>
+        </div>
+      </form>
+      <div id="authFeedback" class="auth-feedback"></div>
     </div>
   </div>
 
-  <!-- ABOUT US & PROJECT MISSION MODAL (Accessible After Login) -->
-  <div id="aboutModal" class="modal-overlay hidden">
-    <div class="modal-card about-card">
-      <div class="about-header">
-        <h3>ℹ️ About IUST Transit Portal</h3>
-        <button class="btn-close-about" onclick="closeAboutModal()">✕</button>
-      </div>
-      <div class="about-body">
-        <div class="about-section">
-          <h4>🎯 Purpose & Mission</h4>
-          <p>
-            The <strong>IUST Transit Portal</strong> was developed to eliminate the daily uncertainty of bus transit for both <strong>students</strong> and <strong>university officials/faculty</strong>. By providing live satellite telemetry, congestion warnings, and accurate morning inbound ETAs, the system streamlines campus commuting.
-          </p>
-        </div>
-
-        <div class="about-section">
-          <h4>👨‍💻 Developed by Students of Department of CSE</h4>
-          <div class="about-team-box">
-            <div class="team-member-item">
-              <span>Basit Javed</span>
-              <strong>B.Tech CSE</strong>
-            </div>
-            <div class="team-member-item">
-              <span>Zainab Sajad</span>
-              <strong>B.Tech CSE</strong>
-            </div>
-            <div class="team-member-item">
-              <span>Kifayat Ali</span>
-              <strong>B.Tech CSE</strong>
-            </div>
-          </div>
-          <p style="font-size: 0.75rem; color: #64748b; margin-top: 6px;">
-            Department of Computer Science & Engineering &bull; Islamic University of Science & Technology
-          </p>
-        </div>
-
-        <div class="about-support-highlight">
-          <strong>Need Technical Assistance or Have Feedback?</strong>
-          <p>If you have questions or encounter any issues, reach out to the development desk:</p>
-          <p style="margin-top: 4px;">
-            📧 <a href="mailto:kifayatali.00003092107@gmail.com">kifayatali.00003092107@gmail.com</a>
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MAIN APP NAVIGATION -->
-  <header>
-    <div class="header-container">
-      <div class="header-branding">
-        <img src="iust-logo.png" alt="IUST Logo" class="header-logo-img" onerror="this.src='https://upload.wikimedia.org/wikipedia/en/2/23/Islamic_University_of_Science_%26_Technology_logo.png'" />
+  <!-- MAIN TRANSIT APP CONTAINER -->
+  <div id="appContainer" class="app-shell" style="display: none;">
+    <!-- Top Navigation -->
+    <header class="app-header">
+      <div class="header-brand">
+        <img src="iust-logo.png" alt="IUST" class="nav-logo" onerror="this.src='https://upload.wikimedia.org/wikipedia/en/2/23/Islamic_University_of_Science_%26_Technology_logo.png'" />
         <div>
-          <h1>IUST Transit Radar</h1>
-          <span class="header-sub">Awantipora Campus &bull; Morning Service</span>
+          <h3>IUST Live Transit</h3>
+          <span id="roleBadge" class="role-badge">Student Mode</span>
         </div>
       </div>
-
-      <!-- Navigation About Button (After Login) -->
-      <div class="header-center-actions">
-        <button class="btn-nav-about" onclick="openAboutModal()">
-          <span>ℹ️</span> About Project
-        </button>
-      </div>
-
       <div class="header-actions">
-        <span id="userBadge" class="user-badge"></span>
-        <button class="btn btn-logout" onclick="handleLogout()">Logout</button>
+        <button class="btn-outline" onclick="openCreditsModal()">ℹ Project Info</button>
+        <button class="btn-danger" onclick="logoutSession()">Sign Out</button>
       </div>
+    </header>
+
+    <!-- Main Viewport -->
+    <main class="main-viewport">
+      <!-- Interactive Leaflet Map -->
+      <div id="map" class="map-view"></div>
+
+      <!-- Live Sidebar / Controls -->
+      <aside class="sidebar-panel">
+        <!-- Student Telemetry Controls -->
+        <section id="studentPanel" class="control-section">
+          <div class="section-heading">
+            <h4>Select University Bus Route</h4>
+          </div>
+          <div class="form-group">
+            <select id="busSelect" class="styled-select" onchange="onBusSelectChange(this.value)">
+              <option value="">-- Choose Bus Route --</option>
+            </select>
+          </div>
+
+          <div class="telemetry-box" id="telemetryBox">
+            <div class="telemetry-row">
+              <span>Selected Route:</span>
+              <strong id="telRouteName">None Selected</strong>
+            </div>
+            <div class="telemetry-row">
+              <span>Status:</span>
+              <strong id="telStatus" class="status-offline">Offline</strong>
+            </div>
+            <div class="telemetry-row">
+              <span>Speed:</span>
+              <strong id="telSpeed">0 km/h</strong>
+            </div>
+            <div class="telemetry-row">
+              <span>ETA to IUST Campus:</span>
+              <strong id="telEta">--</strong>
+            </div>
+            <div class="telemetry-row">
+              <span>Last Broadcast:</span>
+              <strong id="telTimestamp">--</strong>
+            </div>
+          </div>
+        </section>
+
+        <!-- Driver Telemetry Controls -->
+        <section id="driverPanel" class="control-section" style="display: none;">
+          <div class="section-heading">
+            <h4>Driver Telemetry Console</h4>
+          </div>
+          <div class="form-group">
+            <label for="driverBusSelect">Assigned Bus ID</label>
+            <select id="driverBusSelect" class="styled-select">
+              <option value="">-- Select Your Bus --</option>
+            </select>
+          </div>
+
+          <div class="driver-actions">
+            <button id="driverToggleBtn" class="btn-success" onclick="toggleDriverTracking()">
+              🛰️ Start Route Telemetry
+            </button>
+          </div>
+
+          <div class="driver-status-log" id="driverStatusLog">
+            Driver standing by. Select bus route and start broadcast.
+          </div>
+        </section>
+      </aside>
+    </main>
+  </div>
+
+  <!-- DEVELOPER CREDITS MODAL -->
+  <div id="creditsModal" class="modal-overlay" style="display: none;">
+    <div class="modal-card">
+      <h3>IUST Transit Portal</h3>
+      <p class="credits-sub">Department of Computer Science & Engineering</p>
+      <div class="credits-list">
+        <div class="credit-item">
+          <strong>Lead Developers:</strong>
+          <span>Basit Javed • Zainab Sajad • Kifayat Ali</span>
+        </div>
+        <div class="credit-item">
+          <strong>Institution:</strong>
+          <span>Islamic University of Science & Technology, Awantipora</span>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="closeCreditsModal()">Close</button>
     </div>
-  </header>
+  </div>
 
-  <!-- MAP & DASHBOARD -->
-  <main>
-    <div id="map"></div>
-
-    <aside class="panel">
-      <!-- STUDENT & FACULTY RADAR VIEW -->
-      <div id="studentPanel">
-        <div class="panel-header">
-          <h3>📍 Track Morning Bus</h3>
-          <span class="badge-live">LIVE TELEMETRY</span>
-        </div>
-
-        <label for="routeSelect">Select Bus / Route:</label>
-        <select id="routeSelect" onchange="onRouteSelect()"></select>
-
-        <div class="route-details-box" id="routeStopsDisplay">
-          <small>Stops: Loading fleet directory...</small>
-        </div>
-
-        <div id="haltAlertBox" class="halt-alert-card hidden">
-          <div class="halt-alert-icon">⚠️</div>
-          <div class="halt-alert-text">
-            <strong>Transit Alert</strong>
-            <p>Bus is currently halted (stationary &gt; 1 min). Possible traffic congestion or scheduled stop.</p>
-          </div>
-        </div>
-
-        <div class="status-box">
-          <div class="stat-row">
-            <span>Fleet Status:</span>
-            <strong id="busStatus">In Yard / Offline 🔴</strong>
-          </div>
-          <div class="stat-row">
-            <span>Assigned Driver:</span>
-            <strong id="busDriverName">--</strong>
-          </div>
-          <div class="stat-row">
-            <span>Driver Phone:</span>
-            <strong id="busDriverPhone">--</strong>
-          </div>
-          <div class="stat-row">
-            <span>Morning ETA to IUST:</span>
-            <strong id="busEta" class="highlight-eta">-- mins</strong>
-          </div>
-          <div class="stat-row">
-            <span>Distance to Campus:</span>
-            <strong id="busDist">-- km</strong>
-          </div>
-          <div class="stat-row">
-            <span>Live Speed:</span>
-            <strong id="busSpeed">0 km/h</strong>
-          </div>
-          <div class="stat-row">
-            <span>Last Telemetry / Fix:</span>
-            <strong id="lastPing">--</strong>
-          </div>
-        </div>
-
-        <div class="fleet-yard-card">
-          <img src="bus-fleet.jpg" alt="IUST Bus Yard" class="fleet-yard-img" onerror="this.style.display='none'" />
-          <div class="fleet-yard-caption">
-            <span>🚍 IUST Fleet Control &bull; Awantipora Yard</span>
-          </div>
-        </div>
-
-        <!-- Sidebar Footer Credits (After Login) -->
-        <div class="panel-footer-credit">
-          <p>Developed by Students of Department of CSE</p>
-          <strong>Basit Javed &bull; Zainab Sajad &bull; Kifayat Ali</strong>
-          <div class="support-query-box">
-            <span>Support Queries: <a href="mailto:kifayatali.00003092107@gmail.com">kifayatali.00003092107@gmail.com</a></span>
-          </div>
-        </div>
-      </div>
-
-      <!-- DRIVER VIEW -->
-      <div id="driverPanel" class="hidden">
-        <div class="panel-header">
-          <h3>🚍 Driver Transponder</h3>
-          <span class="badge-driver">LOCKED FLEET VEHICLE</span>
-        </div>
-
-        <label for="driverBusSelect">Assigned Vehicle (Locked to Account):</label>
-        <select id="driverBusSelect" disabled style="background:#e2e8f0; cursor:not-allowed; opacity:0.9; font-weight:bold;"></select>
-
-        <div class="route-details-box" id="driverRouteDisplay">
-          <small>Stops: Loading assigned route...</small>
-        </div>
-
-        <div class="status-box">
-          <div class="stat-row">
-            <span>GPS Satellite:</span>
-            <strong id="gpsStatus">Offline</strong>
-          </div>
-          <div class="stat-row">
-            <span>Morning Transit to IUST:</span>
-            <strong id="driverEta">-- mins</strong>
-          </div>
-          <div class="stat-row">
-            <span>Cloud Broadcast:</span>
-            <strong id="cloudStatus">Ready</strong>
-          </div>
-          <div class="stat-row">
-            <span>Broadcasting Fix:</span>
-            <strong id="driverCoords">-- , --</strong>
-          </div>
-        </div>
-
-        <button id="startTripBtn" class="btn btn-start" onclick="startDriverTracking()">PUNCH START TRIP</button>
-        <button id="stopTripBtn" class="btn btn-stop hidden" onclick="stopDriverTracking()">PUNCH OUT (END TRIP)</button>
-
-        <div class="fleet-yard-card">
-          <img src="bus-fleet.jpg" alt="IUST Bus Yard" class="fleet-yard-img" onerror="this.style.display='none'" />
-          <div class="fleet-yard-caption">
-            <span>🚍 Fleet Transponder Synced to Awantipora Hub</span>
-          </div>
-        </div>
-
-        <!-- Sidebar Footer Credits (After Login) -->
-        <div class="panel-footer-credit">
-          <p>Developed by Students of Department of CSE</p>
-          <strong>Basit Javed &bull; Zainab Sajad &bull; Kifayat Ali</strong>
-          <div class="support-query-box">
-            <span>Support Queries: <a href="mailto:kifayatali.00003092107@gmail.com">kifayatali.00003092107@gmail.com</a></span>
-          </div>
-        </div>
-      </div>
-    </aside>
-  </main>
-
+  <!-- Leaflet Map JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="app.js"></script>
+  <!-- Application Controller -->
+  <script src="app.js?v=17"></script>
 </body>
 </html>

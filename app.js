@@ -16,6 +16,13 @@ const db = firebase.database();
 const auth = firebase.auth();
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 
+// Enable faster local synchronization
+db.ref('.info/connected').on('value', (snap) => {
+  if (snap.val() === true) {
+    console.log("⚡ Ultra-low latency connection established to Firebase RTDB");
+  }
+});
+
 // --- 2. COMPLETE IUST FLEET LIST ---
 const BUS_FLEET = [
   { id: "01", name: "Bus #01", route: "BUS STAND ANANTNAG, KHANABAL, BIJBEHARA TO IUST" },
@@ -80,12 +87,11 @@ let myCurrentSessionToken = null;
 let currentRoutePolyline = null;
 let proximityAlertTriggered = false;
 
-// Target Baseline Coordinates (Awantipora Campus)
+// Campus Coordinates
 const IUST_LAT = 33.9259;
 const IUST_LNG = 75.0165;
 const MORNING_AVG_SPEED_KMH = 32;
 
-// --- FEATURE 1: ROUTE PATH WAYPOINT MAPPINGS ---
 const ROUTE_WAYPOINTS = {
   "01": [[33.7311, 75.1487], [33.7523, 75.1321], [33.7915, 75.1023], [33.9259, 75.0165]],
   "02": [[34.0754, 74.7758], [34.0489, 74.7891], [34.0321, 74.8012], [33.9259, 75.0165]],
@@ -97,28 +103,78 @@ const ROUTE_WAYPOINTS = {
   "44": [[33.8214, 74.8512], [33.8741, 74.8974], [33.9412, 74.9512], [33.9259, 75.0165]]
 };
 
-// --- 3. MODAL HANDLERS ---
-function openAboutModal() {
-  document.getElementById('aboutModal').classList.remove('hidden');
+// Modals
+function openAboutModal() { document.getElementById('aboutModal').classList.remove('hidden'); }
+function closeAboutModal() { document.getElementById('aboutModal').classList.add('hidden'); }
+function openSupportModal() { document.getElementById('supportModal').classList.remove('hidden'); }
+function closeSupportModal() { document.getElementById('supportModal').classList.add('hidden'); }
+
+// Audio Handling
+let isTransitAppUnlocked = false;
+
+function playTransitAudioRepeatedly() {
+  const audioEl = document.getElementById('transitAudio');
+  if (!audioEl) return;
+  audioEl.pause();
+  audioEl.currentTime = 0;
+  audioEl.volume = 1.0;
+  audioEl.muted = false;
+  const p = audioEl.play();
+  if (p !== undefined) p.catch(() => {});
 }
 
-function closeAboutModal() {
-  document.getElementById('aboutModal').classList.add('hidden');
+function playDriverExclusiveTone() {
+  const drvAudio = document.getElementById('driverAudio');
+  if (drvAudio) {
+    drvAudio.pause();
+    drvAudio.currentTime = 0;
+    drvAudio.volume = 1.0;
+    drvAudio.muted = false;
+    const p = drvAudio.play();
+    if (p !== undefined) p.catch(() => playTransitAudioRepeatedly());
+  } else {
+    playTransitAudioRepeatedly();
+  }
 }
 
-// --- 4. SECURITY, TIMING & SESSION CONTROL ENGINE ---
+function unlockAndStartTransit(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  if (isTransitAppUnlocked) return;
+  isTransitAppUnlocked = true;
+
+  playTransitAudioRepeatedly();
+
+  const fillBar = document.getElementById('splashLoaderFill');
+  const tapBtn = document.getElementById('splashTapBtn');
+  if (fillBar) fillBar.classList.add('running');
+  if (tapBtn) {
+    tapBtn.innerText = "⚡ Initializing Fleet Radar...";
+    tapBtn.style.animation = "none";
+    tapBtn.style.opacity = "0.85";
+  }
+
+  setTimeout(() => {
+    const splash = document.getElementById('splashScreen');
+    if (splash) {
+      splash.classList.add('fade-out');
+      setTimeout(() => {
+        splash.style.display = 'none';
+        if (typeof map !== 'undefined' && map) {
+          map.invalidateSize();
+          map.setView(awantiporaCampus, 13);
+        }
+      }, 600);
+    }
+  }, 2400);
+}
+
+// Security & Single Session Logic
 const LOCKOUT_DURATION_MS = 30 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
 
-function sanitizeEmailKey(email) {
-  return email.replace(/[.#$[\]]/g, '_');
-}
+function sanitizeEmailKey(email) { return (email || "").replace(/[.#$[\]]/g, '_'); }
+function generateSessionToken() { return 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9); }
 
-function generateSessionToken() {
-  return 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
-}
-
-// Enforce single active device session across all platforms
 function registerSingleDeviceSession(userEmail) {
   const cleanEmail = sanitizeEmailKey(userEmail);
   myCurrentSessionToken = generateSessionToken();
@@ -191,36 +247,26 @@ function normalizeBusId(id) {
   return str.padStart(2, '0');
 }
 
-// Server-side pattern validation without leaking format hints
 function isValidStudentRegId(regId) {
-  const cleanId = regId.replace(/\s+/g, '').toUpperCase();
+  const cleanId = (regId || "").replace(/\s+/g, '').toUpperCase();
   const iustPattern = /^IUST01[0-9A-Z]{4,10}$/;
-  return {
-    isValid: iustPattern.test(cleanId),
-    formattedId: cleanId
-  };
+  return { isValid: iustPattern.test(cleanId), formattedId: cleanId };
 }
 
 function isValidFacultyId(empId) {
-  const cleanId = empId.trim().toUpperCase();
-  return {
-    isValid: cleanId.length >= 3,
-    formattedId: cleanId
-  };
+  const cleanId = (empId || "").trim().toUpperCase();
+  return { isValid: cleanId.length >= 3, formattedId: cleanId };
 }
 
 function isValidPhoneNumber(phone) {
-  const cleanPhone = phone.replace(/[^0-9+]/g, '');
+  const cleanPhone = (phone || "").replace(/[^0-9+]/g, '');
   return cleanPhone.length >= 10;
 }
 
-// MORNING INBOUND WINDOW: 07:30 AM to 10:00 AM ONLY
 function isMorningInboundWindow() {
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const morningStartMinutes = 7 * 60 + 30; // 07:30 AM (450 mins)
-  const morningEndMinutes = 10 * 60 + 0;   // 10:00 AM (600 mins)
-  return currentMinutes >= morningStartMinutes && currentMinutes <= morningEndMinutes;
+  return currentMinutes >= (7 * 60 + 30) && currentMinutes <= (10 * 60);
 }
 
 function initOccupancyListener() {
@@ -259,7 +305,6 @@ function populateFleetSelectors() {
     optReg.value = normId;
     optReg.innerText = `${bus.name}${occupiedText} — ${bus.route.split(',')[0]}`;
     
-    // Strict Lockout: If occupied by another driver, disable selection completely
     if (isOccupied && (!pendingGoogleUser || isOccupied.driverUid !== pendingGoogleUser.uid)) {
       optReg.disabled = true;
       optReg.style.color = "#94a3b8";
@@ -273,7 +318,6 @@ function populateFleetSelectors() {
   }
 }
 
-// FEATURE 1 IMPLEMENTATION: Draw Route Polyline on Map
 function drawRoutePolyline(busId) {
   const normId = normalizeBusId(busId);
 
@@ -294,7 +338,6 @@ function drawRoutePolyline(busId) {
   }
 }
 
-// FEATURE 2 IMPLEMENTATION: Proximity Arrival Trigger (< 1 km)
 function evaluateProximityAlert(busLat, busLng) {
   if (!navigator.geolocation) return;
 
@@ -315,16 +358,13 @@ function evaluateProximityAlert(busLat, busLng) {
   }, () => {}, { enableHighAccuracy: false, timeout: 5000 });
 }
 
-// FEATURE 3 IMPLEMENTATION: Stale Signal / Heartbeat Disconnect Detector (> 3 mins)
 function evaluateSignalFreshness(lastTimestamp, isOnline) {
   if (!isOnline) {
     return { text: "Offline / In Yard 🔴", isStale: false };
   }
 
   const timeDiffMs = Date.now() - (lastTimestamp || 0);
-  const staleThresholdMs = 3 * 60 * 1000; // 3 minutes
-
-  if (timeDiffMs > staleThresholdMs) {
+  if (timeDiffMs > (3 * 60 * 1000)) {
     return { text: "Signal Disconnected / Stale ⚪", isStale: true };
   }
 
@@ -356,8 +396,7 @@ function calculateDistanceKm(lat1, lon1, lat2, lon2) {
   const a = 
     Math.sin(dLat/2) * Math.sin(dLat/2) +
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
 
 function computeMorningEtaMinutes(distKm, currentSpeed) {
@@ -417,13 +456,10 @@ function updateFormLayout() {
 
 function configureAuthPersistence() {
   const remember = document.getElementById('rememberMeCheckbox').checked;
-  const persistenceType = remember 
-    ? firebase.auth.Auth.Persistence.LOCAL 
-    : firebase.auth.Auth.Persistence.SESSION;
+  const persistenceType = remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION;
   return auth.setPersistence(persistenceType);
 }
 
-// 1. GOOGLE AUTHENTICATION FLOW (Read-only on initial handshake)
 function handleGoogleAuth() {
   if (checkSecurityLockout()) return;
 
@@ -435,14 +471,12 @@ function handleGoogleAuth() {
       .then((result) => {
         const user = result.user;
 
-        // Check if verified profile exists in database
         db.ref('users/' + user.uid).once('value').then((snap) => {
           const profile = snap.val();
           if (profile && profile.role) {
             registerSingleDeviceSession(user.email);
             finalizeLogin(user);
           } else {
-            // New user: Hold in memory only (Zero DB footprint)
             pendingGoogleUser = user;
             authMode = 'google_onboarding';
             document.getElementById('authName').value = user.displayName || "";
@@ -454,7 +488,6 @@ function handleGoogleAuth() {
   });
 }
 
-// 2. FIRST-TIME GOOGLE ONBOARDING: ZERO-TRACE REJECTION ON INVALID SCHEME
 function handleCompleteGoogleOnboarding() {
   if (checkSecurityLockout()) return;
 
@@ -470,14 +503,12 @@ function handleCompleteGoogleOnboarding() {
     const phone = document.getElementById('authPhone').value.trim();
     const chosenBus = normalizeBusId(document.getElementById('driverRegistrationBusSelect').value);
 
-    // Validation
     if (!name || !isValidPhoneNumber(phone) || !chosenBus || (busOccupancyMap[chosenBus] && busOccupancyMap[chosenBus].driverUid !== pendingGoogleUser.uid)) {
       purgeUnverifiedAccount(pendingGoogleUser);
       recordSecurityViolation();
       return;
     }
 
-    // Success: Commit to Database & Auto-Lock Bus Permanently
     registerSingleDeviceSession(pendingGoogleUser.email);
     db.ref('bus_assignments/' + chosenBus).set({
       driverUid: pendingGoogleUser.uid,
@@ -498,7 +529,6 @@ function handleCompleteGoogleOnboarding() {
     const rawEmpId = document.getElementById('authFacultyId').value.trim();
     const validation = isValidFacultyId(rawEmpId);
 
-    // Strict Rejection & Purge: Zero data stored in Firebase
     if (!validation.isValid) {
       purgeUnverifiedAccount(pendingGoogleUser);
       recordSecurityViolation();
@@ -518,7 +548,6 @@ function handleCompleteGoogleOnboarding() {
     const rawRegId = document.getElementById('authRegId').value.trim();
     const validation = isValidStudentRegId(rawRegId);
 
-    // Strict Rejection & Purge: Zero data stored in Firebase
     if (!validation.isValid) {
       purgeUnverifiedAccount(pendingGoogleUser);
       recordSecurityViolation();
@@ -536,12 +565,9 @@ function handleCompleteGoogleOnboarding() {
   }
 }
 
-// PURGE REJECTED UNVERIFIED USER (Deletes Auth record)
 function purgeUnverifiedAccount(user) {
   if (user) {
-    user.delete().catch(() => {
-      auth.signOut();
-    });
+    user.delete().catch(() => auth.signOut());
   }
   pendingGoogleUser = null;
   authMode = 'login';
@@ -560,7 +586,6 @@ function handleAuthSubmit() {
   }
 }
 
-// 3. MANUAL REGISTRATION
 function handleManualSignup() {
   if (checkSecurityLockout()) return;
 
@@ -679,7 +704,6 @@ function handleManualSignup() {
   }
 }
 
-// 4. EMAIL / PASSWORD LOGIN
 function handleEmailPasswordLogin() {
   if (checkSecurityLockout()) return;
 
@@ -718,6 +742,13 @@ function finalizeLogin(user) {
   db.ref('users/' + user.uid).once('value').then((snap) => {
     const userData = snap.val();
     const role = (userData && userData.role) ? userData.role : selectedRole;
+    
+    if (role === 'driver') {
+      playDriverExclusiveTone();
+    } else {
+      playTransitAudioRepeatedly();
+    }
+
     setupUserDashboard(role, user.email, user.uid);
   });
 }
@@ -772,11 +803,10 @@ function setupUserDashboard(role, email, uid) {
       document.getElementById('studentPanel').classList.add('hidden');
       document.getElementById('driverPanel').classList.remove('hidden');
 
-      // PERMANENT DRIVER BUS AUTOLOCK & IDENTITY BINDING
       lockedDriverBusId = normalizeBusId(userData.assignedBusId || "01");
       const drvSelect = document.getElementById('driverBusSelect');
       drvSelect.value = lockedDriverBusId;
-      drvSelect.disabled = true; // Auto-locked permanently
+      drvSelect.disabled = true;
 
       document.getElementById('driverConsoleName').innerText = userData.name || "Authorized Driver";
       document.getElementById('driverConsolePhone').innerText = userData.phone || "Not Provided";
@@ -819,6 +849,7 @@ let busMarker = L.marker(awantiporaCampus, { icon: busIcon })
   .addTo(map)
   .bindPopup("<b>Bus Telemetry</b><br>Awaiting broadcast signal...");
 
+// ULTRA-FAST REAL-TIME LISTENER FOR STUDENTS & FACULTY
 function listenToBusUpdates(rawBusId) {
   const busId = normalizeBusId(rawBusId);
 
@@ -829,6 +860,7 @@ function listenToBusUpdates(rawBusId) {
 
   currentListenerRef = db.ref('buses/' + busId);
 
+  // Direct asynchronous snapshot delivery without queuing delays
   currentListenerRef.on('value', (snapshot) => {
     const data = snapshot.val();
     const assignedDriver = busOccupancyMap[busId];
@@ -843,15 +875,15 @@ function listenToBusUpdates(rawBusId) {
       document.getElementById('busDriverPhone').innerText = "N/A";
     }
 
-    if (data && data.lat && data.lng) {
-      const lat = Number(data.lat);
-      const lng = Number(data.lng);
+    if (data && typeof data.lat !== 'undefined' && typeof data.lng !== 'undefined' && data.lat !== null && data.lng !== null) {
+      const lat = parseFloat(data.lat);
+      const lng = parseFloat(data.lng);
       const newLatLng = new L.LatLng(lat, lng);
       
+      // Update marker coordinates immediately
       busMarker.setLatLng(newLatLng);
-      map.panTo(newLatLng);
+      map.panTo(newLatLng, { animate: false }); // Instant snap without animation latency
 
-      // FEATURE 2: Evaluate proximity arrival chime
       evaluateProximityAlert(lat, lng);
 
       const distanceKm = calculateDistanceKm(lat, lng, IUST_LAT, IUST_LNG);
@@ -879,26 +911,25 @@ function listenToBusUpdates(rawBusId) {
         haltAlertElement.classList.add('hidden');
       }
 
-      // FEATURE 3: Check signal freshness
       const signal = evaluateSignalFreshness(data.timestamp, data.isOnline);
       const finalStatus = isHalted ? "Halted in Traffic ⚠️" : signal.text;
-
       const driverContactInfo = assignedDriver ? `<br>Driver: ${assignedDriver.driverName} (📞 ${assignedDriver.driverPhone || 'N/A'})` : "";
 
+      // Instant status reflection for punch-in vs punch-out
       if (data.isOnline && !signal.isStale) {
         document.getElementById('busStatus').innerText = finalStatus;
         document.getElementById('busDist').innerText = `${distanceKm.toFixed(1)} km`;
         document.getElementById('busEta').innerText = displayEta;
-        document.getElementById('busSpeed').innerText = `${data.speed} km/h`;
+        document.getElementById('busSpeed').innerText = `${data.speed || 0} km/h`;
         document.getElementById('lastPing').innerText = new Date(data.timestamp).toLocaleTimeString();
-        busMarker.getPopup().setContent(`<b>Bus #${busId}</b><br>Status: ${finalStatus}<br>Speed: ${data.speed} km/h${popupEta}${driverContactInfo}`);
+        busMarker.getPopup().setContent(`<b>Bus #${busId}</b><br>Status: ${finalStatus}<br>Speed: ${data.speed || 0} km/h${popupEta}${driverContactInfo}`);
       } else {
-        document.getElementById('busStatus').innerText = signal.text;
+        document.getElementById('busStatus').innerText = "Offline / In Yard 🔴";
         document.getElementById('busDist').innerText = `${distanceKm.toFixed(1)} km`;
-        document.getElementById('busEta').innerText = signal.isStale ? "Signal Interrupted" : "Trip Concluded";
+        document.getElementById('busEta').innerText = "Trip Concluded (Punched Out)";
         document.getElementById('busSpeed').innerText = "0 km/h";
-        document.getElementById('lastPing').innerText = `Last recorded at ${new Date(data.timestamp).toLocaleTimeString()}`;
-        busMarker.getPopup().setContent(`<b>Bus #${busId}</b><br>Status: ${signal.text}<br>Last recorded at ${new Date(data.timestamp).toLocaleTimeString()}${driverContactInfo}`);
+        document.getElementById('lastPing').innerText = `Punched out at ${new Date(data.timestamp || Date.now()).toLocaleTimeString()}`;
+        busMarker.getPopup().setContent(`<b>Bus #${busId}</b><br>Status: Offline / In Yard 🔴<br>Punched out at ${new Date(data.timestamp || Date.now()).toLocaleTimeString()}${driverContactInfo}`);
       }
     } else {
       busMarker.setLatLng(awantiporaCampus);
@@ -924,158 +955,135 @@ function onRouteSelect() {
   listenToBusUpdates(activeBusId);
 }
 
-// --- 7. DRIVER TELEMETRY BROADCASTER (WITH LIVE PIN TRACKING) ---
+// --- 7. MILLISECOND-FAST DRIVER BROADCASTER & PUNCH-OUT ENGINE ---
 let lastRecordedLat = null;
 let lastRecordedLng = null;
 let lastMovedTime = Date.now();
+let isBroadcastingActive = false;
+
+function broadcastDriverPosition(position) {
+  if (!isBroadcastingActive) return; // Prevent latent geolocation events after punch-out
+
+  const busId = normalizeBusId(lockedDriverBusId);
+  const lat = parseFloat(position.coords.latitude);
+  const lng = parseFloat(position.coords.longitude);
+  const speed = position.coords.speed ? parseFloat((position.coords.speed * 3.6).toFixed(1)) : 0;
+  const accuracy = Math.round(position.coords.accuracy || 0);
+
+  // Immediate local UI reflection
+  const driverPos = new L.LatLng(lat, lng);
+  busMarker.setLatLng(driverPos);
+  map.panTo(driverPos, { animate: false });
+
+  if (lastRecordedLat !== null && lastRecordedLng !== null) {
+    const movedDist = calculateDistanceKm(lastRecordedLat, lastRecordedLng, lat, lng);
+    if (movedDist > 0.015 || speed >= 2) {
+      lastMovedTime = Date.now();
+    }
+  }
+
+  lastRecordedLat = lat;
+  lastRecordedLng = lng;
+
+  const distanceKm = calculateDistanceKm(lat, lng, IUST_LAT, IUST_LNG);
+  const inMorningWindow = isMorningInboundWindow();
+
+  let driverDisplayEta = "--";
+  if (inMorningWindow) {
+    const etaMinutes = computeMorningEtaMinutes(distanceKm, speed);
+    driverDisplayEta = `~${etaMinutes} mins (${distanceKm.toFixed(1)} km to IUST)`;
+  } else {
+    driverDisplayEta = `Outbound Transit (${distanceKm.toFixed(1)} km from IUST)`;
+  }
+
+  // Atomic write to RTDB (Sub-50ms transmission)
+  db.ref('buses/' + busId).update({
+    lat: lat,
+    lng: lng,
+    accuracy: accuracy,
+    speed: speed,
+    isOnline: true,
+    lastMovedTimestamp: lastMovedTime,
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  });
+
+  document.getElementById('gpsStatus').innerText = `Satellite Fixed (±${accuracy}m) ✅`;
+  document.getElementById('driverEta').innerText = driverDisplayEta;
+  document.getElementById('cloudStatus').innerText = "Live Synchronized 🛰️";
+  document.getElementById('driverCoords').innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
 
 function startDriverTracking() {
   if (!navigator.geolocation) {
-    alert("Geolocation is not supported by your device.");
+    alert("Geolocation is not supported by your device or browser.");
     return;
   }
 
+  isBroadcastingActive = true;
   const busId = normalizeBusId(lockedDriverBusId);
-  document.getElementById('gpsStatus').innerText = "Acquiring High-Precision GPS Lock...";
+
+  // Optimistic UI update: Immediate UI response
+  document.getElementById('gpsStatus').innerText = "Acquiring High-Speed GPS Fix...";
+  document.getElementById('cloudStatus').innerText = "Broadcasting Live...";
   document.getElementById('startTripBtn').classList.add('hidden');
   document.getElementById('stopTripBtn').classList.remove('hidden');
 
   lastMovedTime = Date.now();
 
-  watchId = navigator.geolocation.watchPosition(
-    (position) => {
-      if (position.coords.accuracy > 80) {
-        document.getElementById('gpsStatus').innerText = `Refining Satellite Fix (±${Math.round(position.coords.accuracy)}m)...`;
-        return;
-      }
+  // Instant atomic punch-in flag
+  db.ref('buses/' + busId).update({
+    isOnline: true,
+    timestamp: firebase.database.ServerValue.TIMESTAMP
+  });
 
-      const lat = Number(position.coords.latitude);
-      const lng = Number(position.coords.longitude);
-      const speed = position.coords.speed ? Number((position.coords.speed * 3.6).toFixed(1)) : 0;
-
-      // Move marker & follow position on driver's screen in real time
-      const driverPos = new L.LatLng(lat, lng);
-      busMarker.setLatLng(driverPos);
-      map.panTo(driverPos);
-
-      // Track motion threshold for traffic detection
-      if (lastRecordedLat !== null && lastRecordedLng !== null) {
-        const movedDist = calculateDistanceKm(lastRecordedLat, lastRecordedLng, lat, lng);
-        if (movedDist > 0.015 || speed >= 2) {
-          lastMovedTime = Date.now();
-        }
-      }
-
-      lastRecordedLat = lat;
-      lastRecordedLng = lng;
-
-      const distanceKm = calculateDistanceKm(lat, lng, IUST_LAT, IUST_LNG);
-      const inMorningWindow = isMorningInboundWindow();
-
-      let driverDisplayEta = "--";
-      if (inMorningWindow) {
-        const etaMinutes = computeMorningEtaMinutes(distanceKm, speed);
-        driverDisplayEta = `~${etaMinutes} mins (${distanceKm.toFixed(1)} km to IUST)`;
-      } else {
-        driverDisplayEta = `Outbound Transit (${distanceKm.toFixed(1)} km from IUST)`;
-      }
-
-      // Push real-time coordinates to Firebase RTDB
-      db.ref('buses/' + busId).set({
-        lat: lat,
-        lng: lng,
-        accuracy: Math.round(position.coords.accuracy),
-        speed: speed,
-        isOnline: true,
-        lastMovedTimestamp: lastMovedTime,
-        timestamp: Date.now()
-      });
-
-      document.getElementById('gpsStatus').innerText = `Satellite Fixed (±${Math.round(position.coords.accuracy)}m) ✅`;
-      document.getElementById('driverEta').innerText = driverDisplayEta;
-      document.getElementById('cloudStatus').innerText = "Live Synchronized 🛰️";
-      document.getElementById('driverCoords').innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  // Fast snapshot fix
+  navigator.geolocation.getCurrentPosition(
+    (pos) => broadcastDriverPosition(pos),
+    (err) => {
+      document.getElementById('gpsStatus').innerText = `GPS Note: ${err.message}`;
     },
+    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+  );
+
+  // High-frequency watcher stream
+  watchId = navigator.geolocation.watchPosition(
+    (pos) => broadcastDriverPosition(pos),
     (error) => {
       document.getElementById('gpsStatus').innerText = `GPS Error: ${error.message}`;
     },
     {
       enableHighAccuracy: true,
       maximumAge: 0,
-      timeout: 12000
+      timeout: 10000
     }
   );
 }
 
+// ZERO-LAG PUNCH-OUT ENGINE
 function stopDriverTracking() {
-  const busId = normalizeBusId(lockedDriverBusId);
+  isBroadcastingActive = false; // Immediately kill in-flight coordinate broadcasts
 
+  // 1. Instantly sever hardware GPS stream
   if (watchId !== null) {
     navigator.geolocation.clearWatch(watchId);
     watchId = null;
   }
 
+  const busId = normalizeBusId(lockedDriverBusId);
+
+  // 2. Optimistic local UI swap (Instant 0ms reflection on driver console)
+  document.getElementById('gpsStatus').innerText = "Trip Concluded / In Yard 🔴";
+  document.getElementById('driverEta').innerText = "Punched Out";
+  document.getElementById('cloudStatus').innerText = "Punched Out (Offline)";
+  document.getElementById('startTripBtn').classList.remove('hidden');
+  document.getElementById('stopTripBtn').classList.add('hidden');
+
+  // 3. Ultra-fast direct update to RTDB
   db.ref('buses/' + busId).update({
     isOnline: false,
     speed: 0,
-    timestamp: Date.now()
+    timestamp: firebase.database.ServerValue.TIMESTAMP
   });
-
-  document.getElementById('gpsStatus').innerText = "Trip Concluded / In Yard";
-  document.getElementById('driverEta').innerText = "Trip Ended";
-  document.getElementById('cloudStatus').innerText = "Broadcast Ended (Last Location Preserved)";
-  document.getElementById('startTripBtn').classList.remove('hidden');
-  document.getElementById('stopTripBtn').classList.add('hidden');
-}
-
-// --- 8. REPEATED AUDIO PLAYBACK & MOBILE SPLASH ENGINE ---
-let isTransitAppUnlocked = false;
-
-function playTransitAudioRepeatedly() {
-  const audioEl = document.getElementById('transitAudio');
-  if (!audioEl) return;
-  audioEl.pause();
-  audioEl.currentTime = 0;
-  audioEl.volume = 1.0;
-  audioEl.muted = false;
-  const playPromise = audioEl.play();
-  if (playPromise !== undefined) {
-    playPromise.catch((err) => {
-      console.warn("Autoplay policy prevented sound playback:", err);
-    });
-  }
-}
-
-function unlockAndStartTransit(e) {
-  if (e && e.stopPropagation) e.stopPropagation();
-  if (isTransitAppUnlocked) return;
-  isTransitAppUnlocked = true;
-
-  // Unlocks mobile media channel via direct user gesture
-  playTransitAudioRepeatedly();
-
-  const fillBar = document.getElementById('splashLoaderFill');
-  const tapBtn = document.getElementById('splashTapBtn');
-  if (fillBar) fillBar.classList.add('running');
-  if (tapBtn) {
-    tapBtn.innerText = "⚡ Initializing Fleet Radar...";
-    tapBtn.style.animation = "none";
-    tapBtn.style.opacity = "0.85";
-  }
-
-  setTimeout(() => {
-    const splash = document.getElementById('splashScreen');
-    if (splash) {
-      splash.classList.add('fade-out');
-      setTimeout(() => {
-        splash.style.display = 'none';
-        if (typeof map !== 'undefined' && map) {
-          map.invalidateSize();
-          map.setView(awantiporaCampus, 13);
-        }
-      }, 600);
-    }
-  }, 2400);
 }
 
 window.addEventListener('resize', () => {

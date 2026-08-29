@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <!-- Main Stylesheet -->
-  <link rel="stylesheet" href="style.css?v=40" />
+  <link rel="stylesheet" href="style.css?v=45" />
 
   <!-- Firebase Compat SDKs -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -26,8 +26,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 </head>
 <body>
-  <!-- Physical In-DOM Audio Element for Auto-Unlocking -->
+  <!-- Physical In-DOM Audio Elements for Mobile Audio Unlocking -->
   <audio id="transitAudio" src="boot.mp3" preload="auto" playsinline></audio>
+  <audio id="driverAudio" src="driver-chime.mp3" preload="auto" playsinline></audio>
 
   <!-- SPLASH SCREEN OVERLAY -->
   <div id="splashScreen" class="splash-container" onclick="unlockAndStartTransit(event)" ontouchstart="unlockAndStartTransit(event)">
@@ -156,7 +157,8 @@
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn-outline" type="button" onclick="openAboutModal()">ℹ About</button>
+        <button class="btn-outline" type="button" onclick="openAboutModal()">ℹ About Us</button>
+        <button class="btn-outline" type="button" onclick="openSupportModal()">🎧 Support</button>
         <button class="btn-danger" type="button" onclick="handleLogout()">Sign Out</button>
       </div>
     </header>
@@ -272,7 +274,18 @@
           </div>
         </section>
 
-        <!-- FLEET VEHICLE PREVIEW (Loads local image from workspace) -->
+        <!-- SUPPORT QUICK-LINK CARD -->
+        <section class="support-quick-card">
+          <div class="support-card-inner">
+            <div>
+              <h5>Need Technical Help?</h5>
+              <p>Contact the campus transit development desk for route assistance or bugs.</p>
+            </div>
+            <button class="btn-outline-sm" type="button" onclick="openSupportModal()">Get Help</button>
+          </div>
+        </section>
+
+        <!-- FLEET VEHICLE PREVIEW -->
         <section class="fleet-preview-section">
           <div class="section-heading">
             <h4>University Transit Fleet</h4>
@@ -294,28 +307,92 @@
     </main>
   </div>
 
-  <!-- ABOUT MODAL -->
+  <!-- ABOUT US MODAL (Full Project Purpose & Knowledge Base) -->
   <div id="aboutModal" class="modal-overlay hidden">
-    <div class="modal-card">
-      <h3>IUST Transit Portal</h3>
-      <p class="credits-sub">Department of Computer Science & Engineering</p>
-      <div class="credits-list">
-        <div class="credit-item">
-          <strong>Lead Developers:</strong>
-          <span>Basit Javed • Zainab Sajad • Kifayat Ali</span>
+    <div class="modal-card wide-modal">
+      <div class="modal-header">
+        <h3>About IUST Transit Portal</h3>
+        <button class="modal-close-btn" type="button" onclick="closeAboutModal()">✕</button>
+      </div>
+      <p class="credits-sub">Official Intelligent Transit Telemetry System</p>
+      
+      <div class="about-content-scroll">
+        <div class="about-section">
+          <h4>🎯 Why Was This Built?</h4>
+          <p>
+            The IUST Transit Portal was engineered to solve daily commute challenges faced by thousands of students and faculty traveling across Kashmir to the Islamic University of Science & Technology, Awantipora. Traditional bus operations suffered from unpredictable morning delays, harsh winter weather disruptions, and lack of real-time coordinate broadcasting.
+          </p>
+          <p>
+            This system bridges the communication gap between university drivers and commuters, eliminating roadside waiting times and providing high-accuracy morning ETAs to the campus gate.
+          </p>
         </div>
-        <div class="credit-item">
-          <strong>Institution:</strong>
-          <span>Islamic University of Science & Technology, Awantipora</span>
+
+        <div class="about-section">
+          <h4>⚙️ Key System Capabilities</h4>
+          <ul class="about-feature-list">
+            <li><strong>Live GPS Telemetry:</strong> Real-time coordinate synchronization via Firebase Realtime Database.</li>
+            <li><strong>Morning Inbound Radar:</strong> Time-gated ETA algorithms calibrated for morning commutes (07:30 AM – 10:00 AM).</li>
+            <li><strong>Proximity Alerts:</strong> Instant audio alerts when your bus is within 1 km of your location.</li>
+            <li><strong>Security Gateway:</strong> Single active device session controls and brute-force prevention.</li>
+          </ul>
+        </div>
+
+        <div class="about-section">
+          <h4>👥 Development Team</h4>
+          <div class="credits-list">
+            <div class="credit-item">
+              <strong>Core Engineering:</strong>
+              <span>Basit Javed • Zainab Sajad • Kifayat Ali</span>
+            </div>
+            <div class="credit-item">
+              <strong>Academic Institution:</strong>
+              <span>Department of Computer Science & Engineering, IUST Awantipora</span>
+            </div>
+          </div>
         </div>
       </div>
-      <button class="btn-primary" type="button" onclick="closeAboutModal()">Close</button>
+
+      <button class="btn-primary" type="button" onclick="closeAboutModal()" style="margin-top: 14px;">Close Overview</button>
     </div>
   </div>
 
+  <!-- SUPPORT & HELPDESK MODAL -->
+  <div id="supportModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🎧 Transit Helpdesk & Support</h3>
+        <button class="modal-close-btn" type="button" onclick="closeSupportModal()">✕</button>
+      </div>
+      <p class="credits-sub">Reach out directly for login issues, route discrepancies, or portal queries.</p>
+      
+      <div class="support-channels-box">
+        <div class="support-channel-item">
+          <div class="channel-icon">📧</div>
+          <div class="channel-details">
+            <strong>Email Support</strong>
+            <a href="mailto:kifayatali.00003092107@gmail.com" class="support-link">kifayatali.00003092107@gmail.com</a>
+          </div>
+        </div>
+
+        <div class="support-channel-item">
+          <div class="channel-icon">📞</div>
+          <div class="channel-details">
+            <strong>Phone / WhatsApp Assistance</strong>
+            <a href="tel:+916006622921" class="support-link">+91 6006622921</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="support-note">
+        <p>💡 <em>When reporting an issue, please specify your Registration Number and assigned Bus Route ID for rapid resolution.</em></p>
+      </div>
+
+      <button class="btn-primary" type="button" onclick="closeSupportModal()" style="margin-top: 14px;">Done</button>
+    </div>
+  </div>
   <!-- Leaflet Map Engine -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- Application Controller Logic -->
-  <script src="app.js?v=40"></script>
+  <script src="app.js?v=45"></script>
 </body>
 </html>
